@@ -227,7 +227,7 @@ st.sidebar.header("Simulation Parameters")
 # User Inputs (using Streamlit widgets)
 num_agents = st.sidebar.slider("Number of Students", 1, 100, 10)
 num_police = st.sidebar.slider("Number of Police Officers", 0, 20, 2)
-steps = st.sidebar.slider("Simulation Steps", 1, 100, 10)
+steps = st.sidebar.slider("Simulation Steps", 1, 100, 100)
 aggress_threshold = st.sidebar.slider("Aggressiveness Threshold", 0.0, 1.0, 0.5)
 grid_size = 10  # Fixed grid size for simplicity
 
