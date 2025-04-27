@@ -87,7 +87,7 @@ class PoliceOfficer:
                     neighbors.append((nx, ny))
         return neighbors
     
-    def move(self, grid, mode):
+    def move(self, grid, mode, fight_spots_grid):
         
         if mode == "random":
             """ Move the police officer to a random neighboring empty cell. """
@@ -101,9 +101,29 @@ class PoliceOfficer:
             return self.position  # Stay in place if no available move
 
         elif mode == "strategic":
-            """ Move police in direction of most aggressive students. Look in entire grid. """
-            
-        
+            # Find the position of the fight hotspot with the highest value
+            max_fight_spot = np.unravel_index(np.argmax(fight_spots_grid), fight_spots_grid.shape)
+            max_x, max_y = max_fight_spot
+            x, y = self.position
+            # Move towards the hotspot
+            if max_x > x:
+                new_x = x + 1
+            elif max_x < x:
+                new_x = x - 1
+            else:
+                new_x = x
+            if max_y > y:
+                new_y = y + 1
+            elif max_y < y:
+                new_y = y - 1
+            else:
+                new_y = y
+            # Check if the new position is within bounds and empty
+            if 0 <= new_x < len(grid) and 0 <= new_y < len(grid) and grid[new_x][new_y] is None:
+                return (new_x, new_y)
+            else:
+                # If not, stay in place
+                return self.position            
 
 
 def create_layout_grid(grid_size):
@@ -169,7 +189,7 @@ def initialize_agents(grid_size, num_students = 0, num_police = 0):
     return students, police_officers, grid, layout_grid
 
 # Simulate one step of the model
-def step(students, grid, layout_grid, threshold):
+def step(students,police_officers, mode ,grid, layout_grid, threshold):
     
     fight_counter = 0  # Initialize fight counter
     
@@ -218,6 +238,18 @@ def step(students, grid, layout_grid, threshold):
             student.aggressiveness = max(student.aggressiveness - reduction, student.initial_aggressiveness) # student can never go below their initial aggressiveness
         student.fought_this_step = False
         
+    # Police officers move
+    for officer in police_officers:
+        # Move the police officer
+        new_pos = officer.move(grid, mode, fight_spots_grid)
+        old_x, old_y = officer.position
+        new_x, new_y = new_pos
+
+        # Update grid to reflect new positions
+        grid[old_x][old_y] = None
+        grid[new_x][new_y] = officer
+        officer.position = new_pos  # Update the agent's position
+        
     return fight_counter  # Return the updated fight counter
 
 # Streamlit app layout
@@ -229,6 +261,7 @@ num_agents = st.sidebar.slider("Number of Students", 1, 100, 10)
 num_police = st.sidebar.slider("Number of Police Officers", 0, 20, 2)
 steps = st.sidebar.slider("Simulation Steps", 1, 100, 100)
 aggress_threshold = st.sidebar.slider("Aggressiveness Threshold", 0.0, 1.0, 0.5)
+mode = st.sidebar.selectbox("Police Movement Mode", ["random", "strategic"])
 grid_size = 10  # Fixed grid size for simplicity
 
 # Initialize agents and run the simulation
@@ -271,7 +304,7 @@ if run_button:
     for step_num in range(steps):
         
         # Run one step of the simulation
-        fight_counter = step(students, grid, layout_grid, aggress_threshold)
+        fight_counter = step(students,police_officers,mode ,grid, layout_grid, aggress_threshold)
 
         # Create a masked array: True where bars are
         mask = np.array([[layout_grid[x][y] == "X" for y in range(grid_size)] for x in range(grid_size)])
