@@ -1,256 +1,17 @@
-
 import streamlit as st
 import random
 import numpy as np
+import networkx as nx
 import matplotlib.pyplot as plt
 from matplotlib import colors
 from matplotlib.colors import ListedColormap, BoundaryNorm
 import time
 
-# Define the Student Agent
-class Student:
-    def __init__(self, unique_id):
-        self.unique_id = unique_id
-        
-        self.aggressiveness = np.random.beta(a=2, b=5) # Distribution of aggressiveness follows a beta distribution with a=2, b=5
-        self.initial_aggressiveness = self.aggressiveness  # Store initial aggressiveness for later use
-        self.budget = np.random.uniform(10, 100)  # Random budget between 10 and 100
-        
-        self.position = None  # Position will be assigned later
-        
-        self.fought_this_step = False # Track if the student fought this step
+from Classes.Student import Student
+from Classes.PoliceOfficer import PoliceOfficer
 
-    def check_for_fight(self, other_agent, threshold):
-        """Check if two agents are adjacent and fight if they meet aggressiveness condition."""
-        if self.unique_id < other_agent.unique_id:  # 🔹 Only one direction allowed
-            if self.aggressiveness > threshold and other_agent.aggressiveness > threshold:
-                self.aggressiveness = min(self.aggressiveness + 0.2, 1.0)
-                other_agent.aggressiveness = min(other_agent.aggressiveness + 0.2, 1.0)
-                self.fought_this_step = True
-                other_agent.fought_this_step = True
-                return True  # Fight occurred
-            else:
-                return False  # No fight occurred
-        else:
-            return False
-            
-    def get_neighbors(self, grid_size):
-        """ Get the list of adjacent positions (neighbors) around the agent's position. """
-        x, y = self.position
-        neighbors = []
-        
-        #Check all adjacent cells (8 neighbors in total)
-        for dx in [-1, 0, 1]:
-            for dy in [-1, 0, 1]:
-                # Avoid checking the agent's own position (x, y)
-                if dx == 0 and dy == 0:
-                    continue
-                nx, ny = x + dx, y + dy
-                if 0 <= nx < grid_size and 0 <= ny < grid_size:
-                    neighbors.append((nx, ny))
-                
-        return neighbors
-    
-    def move(self, grid):
-        """ Move the student to a random neighboring empty cell. """
-        neighbors = self.get_neighbors(len(grid))  # Get adjacent positions
-        available_positions = [pos for pos in neighbors if grid[pos[0]][pos[1]] is None]
+from Functions import initialize_agents, step, calculate_distance_to_bars
 
-        if available_positions:
-            new_pos = random.choice(available_positions)  # Pick a random free neighbor
-            return new_pos
-        
-        return self.position  # Stay in place if no available move
-    
-    def buy_drink(self):
-        """ Student buys a drink, if they have enough money, and becomes more aggressive. """
-        if self.budget > 0:
-            self.budget -= 1  # Drink costs 1 unit of money
-            self.aggressiveness = min(self.aggressiveness + (0.1*self.aggressiveness), 1) 
-    
-    
-class PoliceOfficer:
-    def __init__(self, unique_id):
-        self.unique_id = unique_id
-        self.position = None  # Position will be assigned later
-        self.response_time = random.uniform(300, 600)  # Random response time (300 to 600 seconds ~ 5 to 10 minutes)
-    
-    def get_neighbors(self, grid_size):
-        x, y = self.position
-        neighbors = []
-        for dx in [-1, 0, 1]:
-            for dy in [-1, 0, 1]:
-                if dx == 0 and dy == 0:
-                    continue
-                nx, ny = x + dx, y + dy
-                if 0 <= nx < grid_size and 0 <= ny < grid_size:
-                    neighbors.append((nx, ny))
-        return neighbors
-    
-    def move(self, grid, mode, fight_spots_grid):
-        
-        if mode == "random":
-            """ Move the police officer to a random neighboring empty cell. """
-            neighbors = self.get_neighbors(len(grid))  # Get adjacent positions
-            available_positions = [pos for pos in neighbors if grid[pos[0]][pos[1]] is None]
-
-            if available_positions:
-                new_pos = random.choice(available_positions)  # Pick a random free neighbor
-                return new_pos
-            
-            return self.position  # Stay in place if no available move
-
-        elif mode == "strategic":
-            # Find the position of the fight hotspot with the highest value
-            max_fight_spot = np.unravel_index(np.argmax(fight_spots_grid), fight_spots_grid.shape)
-            max_x, max_y = max_fight_spot
-            x, y = self.position
-            # Move towards the hotspot
-            if max_x > x:
-                new_x = x + 1
-            elif max_x < x:
-                new_x = x - 1
-            else:
-                new_x = x
-            if max_y > y:
-                new_y = y + 1
-            elif max_y < y:
-                new_y = y - 1
-            else:
-                new_y = y
-            # Check if the new position is within bounds and empty
-            if 0 <= new_x < len(grid) and 0 <= new_y < len(grid) and grid[new_x][new_y] is None:
-                return (new_x, new_y)
-            else:
-                # If not, stay in place
-                return self.position            
-
-
-def create_layout_grid(grid_size):
-    layout_grid = np.full((grid_size, grid_size), None)  # Start with walkable grid
-
-    street_width = grid_size-2
-
-    # Add one-column bars on each side of the street
-    start_col = grid_size // 2 - street_width // 2
-    end_col = start_col + street_width
-
-    # Mark the bars to the left of the street
-    if start_col - 1 >= 0:
-        layout_grid[:, start_col - 1] = "X"
-
-    # Mark the bars to the right of the street
-    if end_col < grid_size:
-        layout_grid[:, end_col] = "X"
-
-    return layout_grid
-
-# Initialize model
-def initialize_agents(grid_size, num_students = 0, num_police = 0):
-    
-    # Initialize agents and place them on the grid.
-    students = []
-    police_officers = []
-    
-    layout_grid = create_layout_grid(grid_size)
-    grid = np.full((grid_size, grid_size), None) 
-    
-    # Initialize police officers if any
-    for i in range(num_police):
-        officer = PoliceOfficer(i)
-        placed = False
-
-        # Place the officer in an empty spot on the grid
-        while not placed:
-            x = random.randint(0, grid_size - 1)
-            y = random.randint(0, grid_size - 1)
-
-            if grid[x][y] is None and layout_grid[x][y] == None:
-                grid[x][y] = officer
-                officer.position = (x, y)
-                police_officers.append(officer)
-                placed = True
-                                
-    for i in range(num_students):
-        student = Student(i + num_police) 
-        placed = False
-
-        # Place the student in an empty spot on the grid
-        while not placed:
-            x = random.randint(0, grid_size - 1)
-            y = random.randint(0, grid_size - 1)
-
-            if grid[x][y] is None:
-                grid[x][y] = student
-                student.position = (x, y)
-                students.append(student)
-                placed = True
-
-    return students, police_officers, grid, layout_grid
-
-# Simulate one step of the model
-def step(students,police_officers, mode ,grid, layout_grid, threshold):
-    
-    fight_counter = 0  # Initialize fight counter
-    
-    for student in students:
-        student.fought_this_step = False  # 🔹 Reset at start of step
-    
-    # Run one step of the simulation.
-    for student in students:
-        
-        # Move agent to a new position
-        new_pos = student.move(grid)
-        old_x, old_y = student.position
-        new_x, new_y = new_pos
-
-        # Update grid to reflect new positions
-        grid[old_x][old_y] = None
-        grid[new_x][new_y] = student
-        student.position = new_pos  # Update the agent's position
-
-        # Get the neighbors of the agent
-        neighbors = student.get_neighbors(len(grid))
-        
-        # If student is in a bar, they buy a drink and no fights occur
-        if layout_grid[new_x][new_y] == "X":
-            student.buy_drink()
-            continue
-        
-        # If one of the neighbors is a police officer, skip fight check
-        if any(isinstance(grid[nx][ny], PoliceOfficer) for nx, ny in neighbors):
-            continue
-        
-        # Check for fights with other students
-        for nx, ny in neighbors:
-            neighbor_agent = grid[nx][ny]
-            if neighbor_agent is not None and student != neighbor_agent and isinstance(neighbor_agent, Student):
-                outcome = student.check_for_fight(neighbor_agent, threshold)
-                if outcome:
-                    fight_counter += 1
-                    fight_spots_grid[new_x][new_y] += 1  # Add fight to the grid
-                
-    # Nonlinear cooling: higher aggressiveness decreases more slowly
-    cooling_rate = 0.1  # You can tweak this
-    for student in students:
-        if not student.fought_this_step:
-            reduction = cooling_rate * (1 - student.aggressiveness)
-            student.aggressiveness = max(student.aggressiveness - reduction, student.initial_aggressiveness) # student can never go below their initial aggressiveness
-        student.fought_this_step = False
-        
-    # Police officers move
-    for officer in police_officers:
-        # Move the police officer
-        new_pos = officer.move(grid, mode, fight_spots_grid)
-        old_x, old_y = officer.position
-        new_x, new_y = new_pos
-
-        # Update grid to reflect new positions
-        grid[old_x][old_y] = None
-        grid[new_x][new_y] = officer
-        officer.position = new_pos  # Update the agent's position
-        
-    return fight_counter  # Return the updated fight counter
 
 # Streamlit app layout
 st.title('Nightlife Simulation')
@@ -261,11 +22,18 @@ num_agents = st.sidebar.slider("Number of Students", 1, 100, 10)
 num_police = st.sidebar.slider("Number of Police Officers", 0, 20, 2)
 steps = st.sidebar.slider("Simulation Steps", 1, 100, 100)
 aggress_threshold = st.sidebar.slider("Aggressiveness Threshold", 0.0, 1.0, 0.5)
-mode = st.sidebar.selectbox("Police Movement Mode", ["random", "strategic"])
-grid_size = 10  # Fixed grid size for simplicity
+mode = st.sidebar.selectbox("Police Movement Mode", ["random", "strategic","distributed-strategic"])
+discount = st.sidebar.checkbox("Discount Bar", value=False)
+graph_type = st.sidebar.selectbox("Friendship Network Type", ["barabasi", "watts", "erdos"])
+
+grid_height = 10  # vertical length
+grid_width = 16   # 14 walkable + 2 bar columns
+
+bar_discount = False
 
 # Initialize agents and run the simulation
-students, police_officers, grid, layout_grid = initialize_agents(grid_size, num_agents,num_police)
+students, police_officers, grid, layout_grid = initialize_agents(grid_height, grid_width, num_agents,num_police, graph_type)
+
 
 # Button to start the simulation
 run_button = st.button("Run Simulation")
@@ -288,7 +56,7 @@ if run_button:
     with chart_container:
         col1, col2 = st.columns(2)
         with col1:
-            st.write("### Fights per Step")
+            st.write("### Steps between Fights")
             fight_counter_placeholder = st.empty()
         with col2:
             st.write("### Mean Aggr. Over Time")
@@ -298,19 +66,31 @@ if run_button:
     # Track data
     fight_history = []
     avg_aggressiveness_history = []
-    fight_spots_grid = np.zeros((grid_size, grid_size))  # Initialize fight spots grid
+    fight_spots_grid = np.zeros((grid_height, grid_width))  # Initialize fight spots grid
+    steps_between_fights_history = []
+    steps_between_fights = 0
+    fight_distance_from_bar = {}
+    
     
 
     for step_num in range(steps):
         
+        if step_num % 10 == 0 and discount:
+            bar_discount = True
+        
         # Run one step of the simulation
-        fight_counter = step(students,police_officers,mode ,grid, layout_grid, aggress_threshold)
+        fight_counter = step(students, police_officers, mode, grid, layout_grid, aggress_threshold, fight_spots_grid)
+        
+        if fight_counter > 0:
+            steps_between_fights = 0
+        else:
+            steps_between_fights += 1
 
         # Create a masked array: True where bars are
-        mask = np.array([[layout_grid[x][y] == "X" for y in range(grid_size)] for x in range(grid_size)])
+        mask = np.array([[layout_grid[x][y] == "X" for y in range(grid_width)] for x in range(grid_height)])
 
         # Display grid
-        grid_display = np.full((grid_size, grid_size), np.nan)
+        grid_display = np.full((grid_height, grid_width), np.nan)
         
         for student in students:
             x, y = student.position
@@ -318,7 +98,7 @@ if run_button:
             
 
         fig, ax = plt.subplots(figsize=(6, 6))
-        cmap = colors.LinearSegmentedColormap.from_list("yellow_red", ["yellow", "orange", "red"])
+        cmap = colors.LinearSegmentedColormap.from_list("green_red", ["green", "yellow", "red"])
         norm = colors.Normalize(vmin=0, vmax=1)
         ax.imshow(grid_display, cmap=cmap, norm=norm)
         
@@ -351,10 +131,22 @@ if run_button:
         fight_history.append(fight_counter)
         avg_aggressiveness = np.mean([s.aggressiveness for s in students])
         avg_aggressiveness_history.append(avg_aggressiveness)
+        steps_between_fights_history.append(steps_between_fights)
 
         # Update the line charts
-        fight_counter_placeholder.line_chart(fight_history)
+        fight_counter_placeholder.line_chart(steps_between_fights_history)
         average_aggressiveness_placeholder.line_chart(avg_aggressiveness_history)
 
         time.sleep(0.3)
+        
+    for officer in police_officers:
+        st.write(f"Officer {officer.unique_id} took {officer.steps_taken} steps.")
+        
+    distances = calculate_distance_to_bars(fight_spots_grid, grid_width)
+    
+    # Display the distances
+    st.write("Distance to Bars for each fight spot:")
+    for i, distance in enumerate(distances):
+        st.write(f"Fight Spot {i}: {distance}")
+    
 
