@@ -26,7 +26,7 @@ mode = st.sidebar.selectbox("Police Movement Mode", ["random", "strategic","dist
 discount = st.sidebar.checkbox("Discount Bar", value=False)
 graph_type = st.sidebar.selectbox("Friendship Network Type", ["barabasi", "watts", "erdos"])
 
-grid_height = 10  # vertical length
+grid_height = 30  # vertical length
 grid_width = 16   # 14 walkable + 2 bar columns
 
 bar_discount = False
