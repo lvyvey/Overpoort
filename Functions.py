@@ -80,10 +80,10 @@ def initialize_agents(grid_height, grid_width, num_students = 0, num_police = 0,
         friend_ids = list(G.neighbors(i))
         student.friends = [students[j] for j in friend_ids]
 
-    return students, police_officers, grid, layout_grid
+    return students, police_officers, grid, layout_grid, G
 
 # Simulate one step of the model
-def step(students, police_officers, mode, grid, layout_grid, threshold, fight_spots_grid):
+def step(students, police_officers, mode, grid, layout_grid, threshold, fight_spots_grid, bar_discount):
     
     fight_counter = 0  # Initialize fight counter
     
@@ -110,7 +110,7 @@ def step(students, police_officers, mode, grid, layout_grid, threshold, fight_sp
         
         # If student is in a bar, they buy a drink and no fights occur
         if layout_grid[new_x][new_y] == "X":
-            student.buy_drink()
+            student.buy_drink(bar_discount)
             continue
         
         # If one of the neighbors is a police officer, skip fight check
@@ -136,31 +136,19 @@ def step(students, police_officers, mode, grid, layout_grid, threshold, fight_sp
         
         
     if mode == "distributed-strategic":
-        # Get top-N unique hotspots by fight intensity
-        flat_indices = np.argsort(fight_spots_grid, axis=None)[::-1]
-        hotspots = [np.unravel_index(i, fight_spots_grid.shape) for i in flat_indices]
+        # Assign officers to nearest hotspots considering fight intensity
+        officer_targets = assign_police_to_hotspots(police_officers, fight_spots_grid)
+        
+        # for officer, target in officer_targets.items():
+        #     print(f"Officer {officer.unique_id} assigned to target {target}")
 
-        # Filter out duplicates or low-intensity spots (e.g., 0 fights)
-        seen = set()
-        filtered_hotspots = []
-        for pos in hotspots:
-            if fight_spots_grid[pos] > 0 and pos not in seen:
-                filtered_hotspots.append(pos)
-                seen.add(pos)
-            if len(filtered_hotspots) >= len(police_officers):
-                break
-
-        # Assign each officer a distinct hotspot
-        for idx, officer in enumerate(police_officers):
-            if idx < len(filtered_hotspots):
-                target = filtered_hotspots[idx]
-            else:
-                target = officer.position  # No good hotspot left, stay put
-
+        # Move the officers to their assigned hotspots
+        for officer, target in officer_targets.items():
             new_pos = officer.move(grid, mode, fight_spots_grid, target)
             old_x, old_y = officer.position
             new_x, new_y = new_pos
 
+            # Update grid positions
             grid[old_x][old_y] = None
             grid[new_x][new_y] = officer
             officer.position = new_pos
@@ -198,3 +186,50 @@ def calculate_distance_to_bars(fight_spots_grid, grid_width):
                 distances.extend([min_distance] * int(num_fights))  # Repeat the distance for each fight
                 
     return distances
+
+def assign_police_to_hotspots(police_officers, fight_spots_grid):
+    # Step 1: Get all hotspots with fights (positions with fights > 0)
+    hotspots = []
+    for i in range(fight_spots_grid.shape[0]):
+        for j in range(fight_spots_grid.shape[1]):
+            if fight_spots_grid[i][j] > 0:
+                hotspots.append((i, j, fight_spots_grid[i][j]))  # (row, col, fight_intensity)
+                
+    # Sort hotspots by fight intensity (most fights first)
+    hotspots.sort(key=lambda x: x[2], reverse=True)  # Sort by intensity in descending order
+    
+    # Only keep the top n hotspots, where n is the number of police officers
+    num_hotspots = min(len(hotspots), len(police_officers))
+    hotspots = hotspots[:num_hotspots]
+    
+
+    # Step 2: Calculate distance to each hotspot for every officer
+    officer_hotspot_assignments = []
+    for officer in police_officers:
+        officer_pos = officer.position
+        distances = []
+        for hotspot in hotspots:
+            hotspot_pos = hotspot[:2]
+            distance = np.abs(officer_pos[0] - hotspot_pos[0]) + np.abs(officer_pos[1] - hotspot_pos[1])  # Manhattan distance
+            distances.append((distance, hotspot_pos))
+        
+        # Sort hotspots by distance (nearest first)
+        distances.sort(key=lambda x: x[0])
+        officer_hotspot_assignments.append((officer, distances))
+
+    # Step 3: Assign each officer to the nearest hotspot
+    assigned_hotspots = set()
+    officer_targets = {}
+    for officer, distances in officer_hotspot_assignments:
+        for distance, hotspot_pos in distances:
+            if hotspot_pos not in assigned_hotspots:
+                # Assign this officer to the nearest unassigned hotspot
+                officer_targets[officer] = hotspot_pos
+                assigned_hotspots.add(hotspot_pos)
+                break
+        else:
+            # If no hotspot is available, officer stays in current position
+            officer_targets[officer] = officer.position
+        
+
+    return officer_targets

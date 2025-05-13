@@ -65,7 +65,7 @@ class Student:
     def buy_drink(self, bar_discount=False):
         
         if bar_discount:
-            cost = 0.5
+            cost = 0.9
         else:
             cost = 1.0
         

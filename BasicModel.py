@@ -18,21 +18,19 @@ st.title('Nightlife Simulation')
 st.sidebar.header("Simulation Parameters")
 
 # User Inputs (using Streamlit widgets)
-num_agents = st.sidebar.slider("Number of Students", 1, 100, 10)
-num_police = st.sidebar.slider("Number of Police Officers", 0, 20, 2)
-steps = st.sidebar.slider("Simulation Steps", 1, 100, 100)
-aggress_threshold = st.sidebar.slider("Aggressiveness Threshold", 0.0, 1.0, 0.5)
+num_agents = st.sidebar.slider("Number of Students", 1, 250, 250)
+num_police = st.sidebar.slider("Number of Police Officers", 0, 30, 20)
+steps = st.sidebar.slider("Simulation Steps", 1, 360, 360)
+aggress_threshold = st.sidebar.slider("Aggressiveness Threshold", 0.0, 1.0, 0.9)
 mode = st.sidebar.selectbox("Police Movement Mode", ["random", "strategic","distributed-strategic"])
 discount = st.sidebar.checkbox("Discount Bar", value=False)
 graph_type = st.sidebar.selectbox("Friendship Network Type", ["barabasi", "watts", "erdos"])
 
 grid_height = 30  # vertical length
-grid_width = 16   # 14 walkable + 2 bar columns
-
-bar_discount = False
+grid_width = 18   # 14 walkable + 2 bar columns
 
 # Initialize agents and run the simulation
-students, police_officers, grid, layout_grid = initialize_agents(grid_height, grid_width, num_agents,num_police, graph_type)
+students, police_officers, grid, layout_grid, friend_network = initialize_agents(grid_height, grid_width, num_agents,num_police, graph_type)
 
 
 # Button to start the simulation
@@ -69,17 +67,18 @@ if run_button:
     fight_spots_grid = np.zeros((grid_height, grid_width))  # Initialize fight spots grid
     steps_between_fights_history = []
     steps_between_fights = 0
-    fight_distance_from_bar = {}
     
     
 
     for step_num in range(steps):
         
-        if step_num % 10 == 0 and discount:
+        bar_discount = False
+        
+        if step_num % 30 == 0 and discount:
             bar_discount = True
         
         # Run one step of the simulation
-        fight_counter = step(students, police_officers, mode, grid, layout_grid, aggress_threshold, fight_spots_grid)
+        fight_counter = step(students, police_officers, mode, grid, layout_grid, aggress_threshold, fight_spots_grid, bar_discount)
         
         if fight_counter > 0:
             steps_between_fights = 0
@@ -137,7 +136,7 @@ if run_button:
         fight_counter_placeholder.line_chart(steps_between_fights_history)
         average_aggressiveness_placeholder.line_chart(avg_aggressiveness_history)
 
-        time.sleep(0.3)
+        time.sleep(0.2)
         
     for officer in police_officers:
         st.write(f"Officer {officer.unique_id} took {officer.steps_taken} steps.")
